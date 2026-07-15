@@ -20,6 +20,8 @@ import time
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from lib.cache import TwoTierCache, _key
@@ -47,6 +49,12 @@ class TranslateIn(BaseModel):
 class BatchIn(BaseModel):
     texts: list[str]
     target: str = "es-MX"
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_to_400(request: Request, exc: RequestValidationError):
+    # contract: invalid input is 400 (FastAPI's default would be 422)
+    return JSONResponse(status_code=400, content={"error": "invalid input", "detail": exc.errors()})
 
 
 @app.on_event("startup")

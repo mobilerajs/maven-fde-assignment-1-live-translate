@@ -86,9 +86,10 @@ class TwoTierCache:
         return None
 
     async def set(self, text: str, target: str, translated: str, model: str) -> None:
-        """Store a translation in both tiers."""
+        """Store a translation in both tiers — SQLite first, so a failed
+        persist never leaves a memory-only ghost entry that would claim
+        `cached: true` while hiding the storage failure."""
         k = _key(text, target)
-        self._mem[k] = translated
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 """INSERT INTO translations(key, source, target, translated, model)
@@ -100,6 +101,7 @@ class TwoTierCache:
                 (k, text, target, translated, model),
             )
             await db.commit()
+        self._mem[k] = translated
 
     async def size(self) -> int:
         async with aiosqlite.connect(self.db_path) as db:

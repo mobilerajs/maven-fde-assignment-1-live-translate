@@ -91,10 +91,11 @@ async function callAiService(path, body, requestId) {
   return res.json();
 }
 
-// Upstream 4xx means the request was invalid (contract: 400); everything else
+// Only an upstream 400/422 means the request itself was invalid (contract:
+// 400). Any other upstream status — 401/403/404 (misconfig), 5xx, timeouts —
 // is an upstream failure (contract: 502).
 function proxyErrorStatus(err) {
-  return err.status >= 400 && err.status < 500 ? 400 : 502;
+  return err.status === 400 || err.status === 422 ? 400 : 502;
 }
 
 // --- routes the widget calls ---------------------------------------------
