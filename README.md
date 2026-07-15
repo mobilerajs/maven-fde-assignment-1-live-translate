@@ -1,5 +1,12 @@
 # Assignment 1 — Live Translate
 
+> **Coursework submission — Raj Singh.** This is my homework for the **Forward
+> Deployed Engineer (FDE) track** of [Hamza Farooq's multi-agent course](https://github.com/hamzafarooq/multi-agent-course)
+> (`FDE/Assignment_1_Live_Translate`). The frontend (widget, extension, loader,
+> demo pages), benchmark, and eval harness are **provided course materials**;
+> my work is the two backend services under `backend/`, the Fly.io deployment
+> config, `PRODUCT_EVAL.md`, and the "How I ran it" notes at the bottom.
+
 > Ship a browser widget that translates any English web page into **Mexican
 > Spanish** in real time and on demand — then build the backend that powers it.
 
