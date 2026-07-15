@@ -2,7 +2,7 @@
 
 - **Student:** Raj Singh
 - **Date:** 2026-07-15
-- **Video demo:** _(link pending — recording scripted, see README)_
+- **Video demo:** https://cap.link/43a8rkw1nyh4abk
 - **LLM provider / model:** Anthropic Claude / `claude-sonnet-4-6`
 - **Backend target:** `http://localhost:8787` (rubric+bench) · `https://raj-livetranslate-gw.fly.dev` (deployed, used for the live-website test)
 

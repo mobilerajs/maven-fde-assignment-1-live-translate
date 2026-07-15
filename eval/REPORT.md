@@ -1,7 +1,7 @@
 # Submission Report — Assignment 1 — Live Translate
 
 - **Student:** Raj Singh
-- **Video demo:** _(paste your 60–90s demo link)_
+- **Video demo:** https://cap.link/43a8rkw1nyh4abk
 - **Backend target:** `http://localhost:8787`
 - **Auto-graded score:** **70 / 70**  ·  manual portion: 30 pts (grader)
 
@@ -20,25 +20,25 @@
 ## Evidence
 
 - Sample translation (`Good morning, welcome!`): **Buenos días, ¡bienvenido!**
-- Cache latency: first `1614 ms` → second `0 ms`
+- Cache latency: first `1287 ms` → second `0 ms`
 - Trace correlation (one request across both logs): ✅ yes
-- Benchmark: hit p95 `8 ms`, miss p95 `2746 ms`, hit rate `78%`, throughput `1663 rps`, SLA **PASS**
-- Cost: `$0.000169`/miss; monthly savings from cache `$65.49`
+- Benchmark: hit p95 `10 ms`, miss p95 `1789 ms`, hit rate `78%`, throughput `1445 rps`, SLA **PASS**
+- Cost: `$0.000168`/miss; monthly savings from cache `$65.16`
 - Deploy: `https://raj-livetranslate-gw.fly.dev/health` → ✅ ok
 
 <details><summary>Benchmark output</summary>
 
 ```
-    cost per MISS (avg)         $0.000169
-    @ 500,000/mo, no cache      $84.50
-    @ 500,000/mo, cached        $19.01
-    monthly savings from cache  $65.49
+    cost per MISS (avg)         $0.000168
+    @ 500,000/mo, no cache      $84.08
+    @ 500,000/mo, cached        $18.92
+    monthly savings from cache  $65.16
 ── SLA GATE ────────────────────────────────────────
-    PASS  cache_hit_p95_ms         7.9 <= 60
-    PASS  cache_miss_p95_ms        2746.0 <= 3500
+    PASS  cache_hit_p95_ms         10.1 <= 60
+    PASS  cache_miss_p95_ms        1788.8 <= 3500
     PASS  min_cache_hit_rate_pct   77.5 >= 60
     PASS  max_error_rate_pct       0.0 <= 1.0
-    PASS  min_throughput_rps       1662.6 >= 20
+    PASS  min_throughput_rps       1444.7 >= 20
 
 ✅ ALL SLAs MET
 
