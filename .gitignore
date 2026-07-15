@@ -1,0 +1,10 @@
+.env
+.venv/
+node_modules/
+*.db
+*.log
+__pycache__/
+.DS_Store
+backend/ai-service-python/tests/
+eval/_bench.json
+benchmark/_bench.json
