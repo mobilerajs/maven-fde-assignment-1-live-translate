@@ -68,19 +68,34 @@ async def translate_one(text: str, target: str) -> dict:
 
     t0 = time.perf_counter()
 
+    # Hot path: warm memory-tier hits never touch a lock.
+    translated = cache.peek_memory(text, target)
+    if translated is not None:
+        latency = int((time.perf_counter() - t0) * 1000)
+        return {"translated": translated, "cached": True, "latencyMs": latency, "model": MODEL}
+
     # Single-flight: identical (text, target) requests share one lock, so a
     # burst of duplicates triggers at most ONE LLM call — the rest wait and
-    # are then served from the cache the leader just populated.
-    lock = _inflight.setdefault(_key(text, target), asyncio.Lock())
-    async with lock:
-        cached_value = await cache.get(text, target)
-        if cached_value is not None:
-            translated, was_cached = cached_value, True
-        else:
-            async with _llm_sem:
-                translated = await translate_text(text, target, model=MODEL)
-            await cache.set(text, target, translated, model=MODEL)
-            was_cached = False
+    # are then served from the cache the leader just populated. (A waiter's
+    # latencyMs includes that wait: it is honest wall time for that request.)
+    key = _key(text, target)
+    lock = _inflight.setdefault(key, asyncio.Lock())
+    try:
+        async with lock:
+            cached_value = await cache.get(text, target)
+            if cached_value is not None:
+                translated, was_cached = cached_value, True
+            else:
+                async with _llm_sem:
+                    translated = await translate_text(text, target, model=MODEL)
+                await cache.set(text, target, translated, model=MODEL)
+                was_cached = False
+    finally:
+        # Locks are only useful while a translation is in flight; drop the
+        # entry once uncontended so _inflight stays bounded. Late arrivals
+        # get a fresh lock and immediately re-check the (now warm) cache.
+        if not lock.locked():
+            _inflight.pop(key, None)
 
     latency = int((time.perf_counter() - t0) * 1000)
     return {"translated": translated, "cached": was_cached, "latencyMs": latency, "model": MODEL}
@@ -95,9 +110,9 @@ async def translate(body: TranslateIn, request: Request):
     req_id = _request_id(request)
     try:
         result = await translate_one(body.text, body.target)
-    except Exception as exc:  # provider/LLM failure — fail LOUD, never echo the input
+    except Exception as exc:  # provider/LLM/storage failure — fail LOUD, never echo the input
         log.error("translate_failed", extra={"requestId": req_id, "error": str(exc), "chars": len(body.text)})
-        raise HTTPException(status_code=502, detail=f"LLM provider error: {exc}")
+        raise HTTPException(status_code=502, detail=f"translation failed: {exc}")
     log.info(
         "translate",
         extra={
@@ -114,13 +129,26 @@ async def translate(body: TranslateIn, request: Request):
 async def translate_batch(body: BatchIn, request: Request):
     req_id = _request_id(request)
     t0 = time.perf_counter()
-    try:
-        # translate concurrently — a page's worth of strings shouldn't serialize
-        results = await asyncio.gather(*[translate_one(t, body.target) for t in body.texts])
-    except Exception as exc:
-        log.error("translate_batch_failed", extra={"requestId": req_id, "error": str(exc), "count": len(body.texts)})
-        raise HTTPException(status_code=502, detail=f"LLM provider error: {exc}")
+    # translate concurrently — a page's worth of strings shouldn't serialize.
+    # return_exceptions=True means every task runs to completion (no orphaned
+    # coroutines still holding locks/semaphore slots after a failure).
+    results = await asyncio.gather(
+        *[translate_one(t, body.target) for t in body.texts], return_exceptions=True
+    )
+    errors = [r for r in results if isinstance(r, BaseException)]
+    if errors:
+        log.error(
+            "translate_batch_failed",
+            extra={"requestId": req_id, "error": str(errors[0]), "failedItems": len(errors), "count": len(body.texts)},
+        )
+        raise HTTPException(status_code=502, detail=f"translation failed: {errors[0]}")
     latency = int((time.perf_counter() - t0) * 1000)
+    # one structured line per translation (AGENTS.md), plus a batch summary
+    for text, r in zip(body.texts, results):
+        log.info(
+            "translate",
+            extra={"requestId": req_id, "cached": r["cached"], "latencyMs": r["latencyMs"], "chars": len(text)},
+        )
     hits = sum(1 for r in results if r["cached"])
     log.info(
         "translate_batch",

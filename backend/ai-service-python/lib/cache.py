@@ -29,6 +29,9 @@ class TwoTierCache:
     async def init(self) -> None:
         """Create the translations table if it doesn't exist."""
         async with aiosqlite.connect(self.db_path) as db:
+            # WAL lets concurrent batch readers/writers coexist without
+            # "database is locked" errors; it persists as a DB property.
+            await db.execute("PRAGMA journal_mode=WAL")
             await db.execute(
                 """CREATE TABLE IF NOT EXISTS translations(
                     key TEXT PRIMARY KEY,
@@ -43,6 +46,15 @@ class TwoTierCache:
                 "CREATE INDEX IF NOT EXISTS idx_translations_key ON translations(key)"
             )
             await db.commit()
+
+    def peek_memory(self, text: str, target: str) -> str | None:
+        """Memory-tier-only lookup for the lock-free hot path. Records stats
+        on a hit; a miss records nothing (the caller falls through to get())."""
+        v = self._mem.get(_key(text, target))
+        if v is not None:
+            self._stats["requests"] += 1
+            self._stats["memory_hits"] += 1
+        return v
 
     async def get(self, text: str, target: str) -> str | None:
         """Return a cached translation or None. Check memory, then SQLite."""

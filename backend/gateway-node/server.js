@@ -53,7 +53,7 @@ app.use((req, res, next) => {
   const t0 = Date.now();
   res.on("finish", () => {
     logLine({
-      level: "INFO",
+      level: res.statusCode >= 500 ? "ERROR" : res.statusCode >= 400 ? "WARN" : "INFO",
       event: "request",
       requestId: req.id,
       method: req.method,
@@ -80,31 +80,47 @@ async function callAiService(path, body, requestId) {
       "x-request-id": requestId || "",
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(120000), // a hung AI service must not pin requests forever
   });
-  if (!res.ok) throw new Error("AI service " + res.status);
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    const err = new Error("AI service " + res.status + (detail ? ": " + detail.slice(0, 300) : ""));
+    err.status = res.status;
+    throw err;
+  }
   return res.json();
+}
+
+// Upstream 4xx means the request was invalid (contract: 400); everything else
+// is an upstream failure (contract: 502).
+function proxyErrorStatus(err) {
+  return err.status >= 400 && err.status < 500 ? 400 : 502;
 }
 
 // --- routes the widget calls ---------------------------------------------
 app.post("/translate", async (req, res) => {
   const { text, target } = req.body || {};
   if (typeof text !== "string") return res.status(400).json({ error: "`text` (string) is required" });
+  if (target != null && typeof target !== "string") return res.status(400).json({ error: "`target` must be a string" });
   try {
     const data = await callAiService("/translate", { text, target: target || "es-MX" }, req.id);
     res.json(data);
   } catch (err) {
-    res.status(502).json({ error: "AI service error: " + err.message });
+    res.status(proxyErrorStatus(err)).json({ error: "AI service error: " + err.message });
   }
 });
 
 app.post("/translate/batch", async (req, res) => {
   const { texts, target } = req.body || {};
-  if (!Array.isArray(texts)) return res.status(400).json({ error: "`texts` (array) is required" });
+  if (!Array.isArray(texts) || texts.some((t) => typeof t !== "string")) {
+    return res.status(400).json({ error: "`texts` (array of strings) is required" });
+  }
+  if (target != null && typeof target !== "string") return res.status(400).json({ error: "`target` must be a string" });
   try {
     const data = await callAiService("/translate/batch", { texts, target: target || "es-MX" }, req.id);
     res.json(data);
   } catch (err) {
-    res.status(502).json({ error: "AI service error: " + err.message });
+    res.status(proxyErrorStatus(err)).json({ error: "AI service error: " + err.message });
   }
 });
 
@@ -112,7 +128,7 @@ app.get("/health", async (req, res) => {
   const uptimeSec = Math.round((Date.now() - startedAt) / 1000);
   let ai = "unreachable";
   try {
-    const r = await fetch(AI_SERVICE_URL + "/health");
+    const r = await fetch(AI_SERVICE_URL + "/health", { signal: AbortSignal.timeout(5000) });
     ai = r.ok ? await r.json() : "error";
   } catch (_) {}
   res.json({ status: "ok", gatewayUptimeSec: uptimeSec, aiService: ai });
@@ -120,7 +136,7 @@ app.get("/health", async (req, res) => {
 
 app.get("/stats", async (req, res) => {
   try {
-    const r = await fetch(AI_SERVICE_URL + "/stats");
+    const r = await fetch(AI_SERVICE_URL + "/stats", { signal: AbortSignal.timeout(10000) });
     res.json(await r.json());
   } catch (err) {
     res.status(502).json({ error: "AI service error: " + err.message });

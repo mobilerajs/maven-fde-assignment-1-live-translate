@@ -45,11 +45,18 @@ def _get_client() -> AsyncAnthropic:
     return _client
 
 
-def _clean(s: str) -> str:
-    """Strip whitespace and symmetric wrapping quotes the model may add."""
+def _clean(s: str, source: str = "") -> str:
+    """Strip whitespace and symmetric wrapping quotes the MODEL added.
+
+    Quotes are only stripped when the source text was not itself
+    quote-wrapped — a legitimately quoted source ("Great gift!") keeps its
+    quotes in the translation.
+    """
     s = s.strip()
+    src = source.strip()
     for open_q, close_q in (('"', '"'), ("“", "”"), ("'", "'")):
-        if len(s) >= 2 and s[0] == open_q and s[-1] == close_q:
+        source_wrapped = len(src) >= 2 and src[0] == open_q and src[-1] == close_q
+        if len(s) >= 2 and s[0] == open_q and s[-1] == close_q and not source_wrapped:
             inner = s[1:-1]
             if open_q not in inner and close_q not in inner:
                 return inner.strip()
@@ -64,7 +71,7 @@ async def translate_text(text: str, target: str = "es-MX", model: str = MODEL_DE
     """
     msg = await _get_client().messages.create(
         model=model,
-        max_tokens=min(4096, max(256, len(text))),
+        max_tokens=min(8192, max(512, len(text) * 2)),
         system=SYSTEM_PROMPT,
         messages=[
             {
@@ -73,4 +80,10 @@ async def translate_text(text: str, target: str = "es-MX", model: str = MODEL_DE
             }
         ],
     )
-    return _clean(msg.content[0].text)
+    if msg.stop_reason == "max_tokens":
+        # A truncated translation must never be returned (it would be cached
+        # permanently as a "good" result) — fail loud instead.
+        raise RuntimeError(
+            f"translation truncated at max_tokens for {len(text)}-char input"
+        )
+    return _clean(msg.content[0].text, source=text)

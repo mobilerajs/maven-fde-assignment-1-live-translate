@@ -1,9 +1,17 @@
-.venv/
-node_modules/
-*.db
-*.log
-.env
-tests/
-__pycache__/
-.git/
-docs/
+# NOTE: unlike .gitignore, .dockerignore patterns are anchored to the build
+# context root — nested paths need the **/ prefix. Without it, the API key in
+# backend/ai-service-python/.env would be baked into the image.
+**/.env
+**/.venv
+**/node_modules
+**/__pycache__
+**/*.db
+**/*.log
+**/tests
+.git
+docs
+demo-pages
+eval
+benchmark
+loader
+extension

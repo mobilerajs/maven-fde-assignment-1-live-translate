@@ -24,22 +24,22 @@
   },
   "evidence": {
     "sample_translation": "Buenos días, ¡bienvenido!",
-    "cache_first_ms": 1287,
+    "cache_first_ms": 1259,
     "cache_second_ms": 0,
-    "bench_tail": "    cost per MISS (avg)         $0.000168\n    @ 500,000/mo, no cache      $84.08\n    @ 500,000/mo, cached        $18.92\n    monthly savings from cache  $65.16\n── SLA GATE ────────────────────────────────────────\n    PASS  cache_hit_p95_ms         10.1 <= 60\n    PASS  cache_miss_p95_ms        1788.8 <= 3500\n    PASS  min_cache_hit_rate_pct   77.5 >= 60\n    PASS  max_error_rate_pct       0.0 <= 1.0\n    PASS  min_throughput_rps       1444.7 >= 20\n\n✅ ALL SLAs MET\n\nWrote /Users/rajsingh/Dev/live-translate/eval/_bench.json",
+    "bench_tail": "    cost per MISS (avg)         $0.000168\n    @ 500,000/mo, no cache      $84.08\n    @ 500,000/mo, cached        $18.92\n    monthly savings from cache  $65.16\n── SLA GATE ────────────────────────────────────────\n    PASS  cache_hit_p95_ms         10.0 <= 60\n    PASS  cache_miss_p95_ms        2148.6 <= 3500\n    PASS  min_cache_hit_rate_pct   77.5 >= 60\n    PASS  max_error_rate_pct       0.0 <= 1.0\n    PASS  min_throughput_rps       1489.7 >= 20\n\n✅ ALL SLAs MET\n\nWrote /Users/rajsingh/Dev/live-translate/eval/_bench.json",
     "bench_metrics": {
       "target": "http://localhost:8787",
       "rounds": 4,
       "concurrency": 8,
       "latency": {
-        "miss_p50": 1398.4290000516921,
-        "miss_p95": 1788.8138169655572,
-        "hit_p50": 3.842145437374711,
-        "hit_p95": 10.055941645987334
+        "miss_p50": 1223.6195204313844,
+        "miss_p95": 2148.6268205801,
+        "hit_p50": 3.469895338639617,
+        "hit_p95": 9.992382838390768
       },
       "hit_rate_pct": 77.5,
       "error_rate_pct": 0.0,
-      "throughput_rps": 1444.6749836627712,
+      "throughput_rps": 1489.7116662792923,
       "cost": {
         "per_miss_usd": 0.00016816666666666667,
         "monthly_no_cache_usd": 84.08333333333333,
