@@ -14,14 +14,15 @@ TODOs so the widget lights up. Run:
     cp .env.example .env          # then add your API key
     uvicorn app:app --reload --port 8000
 """
+import asyncio
 import os
 import time
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
-from lib.cache import TwoTierCache
+from lib.cache import TwoTierCache, _key
 from lib.llm import translate_text
 from lib.logger import get_logger
 
@@ -29,10 +30,14 @@ load_dotenv()
 
 MODEL = os.getenv("MODEL", "claude-sonnet-4-6")
 DB_PATH = os.getenv("TRANSLATION_DB_PATH", "translations.db")
+LLM_CONCURRENCY = int(os.getenv("LLM_CONCURRENCY", "8"))
 
 app = FastAPI(title="FDE Live Translate — AI Service")
 log = get_logger("ai-service")
 cache = TwoTierCache(DB_PATH)
+
+_inflight: dict[str, asyncio.Lock] = {}       # single-flight lock per cache key
+_llm_sem = asyncio.Semaphore(LLM_CONCURRENCY)  # cap concurrent provider calls
 
 # request/response shapes ----------------------------------------------------
 class TranslateIn(BaseModel):
@@ -63,45 +68,64 @@ async def translate_one(text: str, target: str) -> dict:
 
     t0 = time.perf_counter()
 
-    # -----------------------------------------------------------------------
-    # TODO (YOU) — the caching flow. This is the heart of the assignment.
-    #   1. Ask the cache for `text` (cache.get). If it's a HIT, use it and set
-    #      cached=True — do NOT call the LLM.
-    #   2. On a MISS, call the LLM (translate_text), then store the result
-    #      (cache.set) so the next identical request is a hit. cached=False.
-    #   3. Measure latencyMs from t0 in BOTH paths (a cache hit should be
-    #      dramatically faster — that's the point you're demonstrating).
-    #
-    # cached_value = await cache.get(text, target)
-    # if cached_value is not None:
-    #     ...
-    # else:
-    #     translated = await translate_text(text, target, model=MODEL)
-    #     await cache.set(text, target, translated, model=MODEL)
-    #     ...
-    # -----------------------------------------------------------------------
-    raise NotImplementedError("Implement the cache/LLM flow in translate_one()")
+    # Single-flight: identical (text, target) requests share one lock, so a
+    # burst of duplicates triggers at most ONE LLM call — the rest wait and
+    # are then served from the cache the leader just populated.
+    lock = _inflight.setdefault(_key(text, target), asyncio.Lock())
+    async with lock:
+        cached_value = await cache.get(text, target)
+        if cached_value is not None:
+            translated, was_cached = cached_value, True
+        else:
+            async with _llm_sem:
+                translated = await translate_text(text, target, model=MODEL)
+            await cache.set(text, target, translated, model=MODEL)
+            was_cached = False
+
+    latency = int((time.perf_counter() - t0) * 1000)
+    return {"translated": translated, "cached": was_cached, "latencyMs": latency, "model": MODEL}
+
+
+def _request_id(request: Request) -> str:
+    return request.headers.get("x-request-id", "-")
 
 
 @app.post("/translate")
-async def translate(body: TranslateIn):
-    result = await translate_one(body.text, body.target)
+async def translate(body: TranslateIn, request: Request):
+    req_id = _request_id(request)
+    try:
+        result = await translate_one(body.text, body.target)
+    except Exception as exc:  # provider/LLM failure — fail LOUD, never echo the input
+        log.error("translate_failed", extra={"requestId": req_id, "error": str(exc), "chars": len(body.text)})
+        raise HTTPException(status_code=502, detail=f"LLM provider error: {exc}")
     log.info(
         "translate",
-        extra={"cached": result["cached"], "latencyMs": result["latencyMs"], "chars": len(body.text)},
+        extra={
+            "requestId": req_id,
+            "cached": result["cached"],
+            "latencyMs": result["latencyMs"],
+            "chars": len(body.text),
+        },
     )
     return result
 
 
 @app.post("/translate/batch")
-async def translate_batch(body: BatchIn):
+async def translate_batch(body: BatchIn, request: Request):
+    req_id = _request_id(request)
     t0 = time.perf_counter()
-    results = []
-    for t in body.texts:
-        results.append(await translate_one(t, body.target))
+    try:
+        # translate concurrently — a page's worth of strings shouldn't serialize
+        results = await asyncio.gather(*[translate_one(t, body.target) for t in body.texts])
+    except Exception as exc:
+        log.error("translate_batch_failed", extra={"requestId": req_id, "error": str(exc), "count": len(body.texts)})
+        raise HTTPException(status_code=502, detail=f"LLM provider error: {exc}")
     latency = int((time.perf_counter() - t0) * 1000)
     hits = sum(1 for r in results if r["cached"])
-    log.info("translate_batch", extra={"count": len(results), "hits": hits, "latencyMs": latency})
+    log.info(
+        "translate_batch",
+        extra={"requestId": req_id, "count": len(results), "hits": hits, "latencyMs": latency},
+    )
     # widget expects {results: [{translated, cached}], latencyMs}
     return {"results": [{"translated": r["translated"], "cached": r["cached"]} for r in results], "latencyMs": latency}
 
