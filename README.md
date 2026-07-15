@@ -1,7 +1,8 @@
 # Assignment 1 — Live Translate
 
-> **Coursework submission — Raj Singh.** This is my homework for the **Forward
-> Deployed Engineer (FDE) track** of [Hamza Farooq's multi-agent course](https://github.com/hamzafarooq/multi-agent-course)
+> **📚 Maven course assignment — not a product.** This is my (Raj Singh's)
+> homework submission for the **Forward Deployed Engineer (FDE) track** of
+> [Hamza Farooq's multi-agent course on Maven](https://github.com/hamzafarooq/multi-agent-course)
 > (`FDE/Assignment_1_Live_Translate`). The frontend (widget, extension, loader,
 > demo pages), benchmark, and eval harness are **provided course materials**;
 > my work is the two backend services under `backend/`, the Fly.io deployment
