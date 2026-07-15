@@ -413,3 +413,42 @@ Every FDE project is submitted as a **Product Evaluation + a video demo**.
 - **CORS errors** → the gateway enables CORS for all origins in dev; make sure requests go to the gateway (`:8787`), not the AI service (`:8000`).
 - **macOS port 5000 is taken** → that's AirPlay Receiver. We use `8787`/`8000` on purpose; keep them.
 - **Extension didn't update after a code change** → re-copy the widget into `extension/` and hit *Reload* on `chrome://extensions`.
+
+---
+
+## How I ran it (Raj Singh)
+
+**LLM provider:** Anthropic Claude, model `claude-sonnet-4-6` (swappable via `MODEL` in `.env`).
+
+### Local
+
+```bash
+# AI service (terminal 1)
+cd backend/ai-service-python
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env   # set ANTHROPIC_API_KEY
+uvicorn app:app --port 8000
+
+# Gateway (terminal 2)
+cd backend/gateway-node
+npm install && cp .env.example .env
+npm start              # http://localhost:8787
+
+# SLA gate
+python benchmark/bench.py   # exits 0 — hit p95 ~8ms, miss p95 ~2.7s, 78% hit rate
+```
+
+### Deployed (Fly.io)
+
+- Gateway (public): `https://raj-livetranslate-gw.fly.dev` — `curl .../health`
+- AI service (private): `raj-livetranslate-ai` — **no public IPs**, reachable only via Fly private networking (`http://raj-livetranslate-ai.flycast`); SQLite cache on a persistent volume (`/data`), survives machine restarts.
+- Deploy: `fly deploy --config fly.ai.toml` / `fly deploy --config fly.gateway.toml` from the repo root (Dockerfiles use the repo root as build context; the gateway image bundles `widget/`).
+- Secrets: `ANTHROPIC_API_KEY` on the AI app, `AI_SERVICE_URL` on the gateway — never in the image or repo.
+
+### Implementation notes
+
+- **Single-flight cache**: identical `(text, target)` requests share an `asyncio.Lock`, so concurrent duplicates trigger at most one LLM call (test-proven with 5 racing requests). Batch translation runs concurrently under a semaphore.
+- **Fail loud**: provider errors → `502` JSON + ERROR log line; the service never echoes English as a "translation". This caught the starter's pinned `anthropic==0.39.0`, which throws on every call under httpx ≥ 0.28 — upgraded to `anthropic>=0.116.0`.
+- **Tracing**: the gateway reuses/creates `X-Request-Id`, forwards it, and both services log it — `grep <id> backend/gateway-node/gateway.log backend/ai-service-python/ai-service.log` shows one request end-to-end.
+- **Known provided-frontend findings** (documented in `PRODUCT_EVAL.md` §2): the extension popup's saved backend URL never applies due to an async-storage race in `extension/content.js`, and Chrome blocks HTTPS-page → `http://localhost` fetches; the live-site test used the README's console-loader path (`window.FDE_CONFIG`) against the deployed gateway, which serves the widget at `/widget.js`.
